@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <lvgl.h>
+#include <esp32-hal-adc.h>
 
 #include "pages.h"
 
@@ -23,6 +24,7 @@ static lv_obj_t *cpu_label = nullptr;
 static lv_obj_t *flash_label = nullptr;
 static lv_obj_t *chip_label = nullptr;
 static lv_obj_t *wifi_label = nullptr;
+static lv_obj_t *light_label = nullptr;
 
 // ==================== UI Helpers ====================
 
@@ -70,7 +72,7 @@ static lv_obj_t *create_card_title(
         label, &lv_font_montserrat_10, LV_PART_MAIN);
 
     lv_obj_align(
-        label, LV_ALIGN_TOP_LEFT, 9, 8);
+        label, LV_ALIGN_TOP_LEFT, 9, 7);
 
     return label;
 }
@@ -91,7 +93,7 @@ static lv_obj_t *create_card_value(
         label, &lv_font_montserrat_14, LV_PART_MAIN);
 
     lv_obj_align(
-        label, LV_ALIGN_BOTTOM_LEFT, 9, -9);
+        label, LV_ALIGN_BOTTOM_LEFT, 9, -7);
 
     return label;
 }
@@ -198,6 +200,18 @@ static void update_system_info(lv_timer_t *timer)
             LV_PART_MAIN
         );
     }
+
+    // Ambient light sensor (GPIO34)
+    analogSetPinAttenuation(34, ADC_0db);
+
+    int light_value = analogRead(34);
+
+    snprintf(
+        buffer, sizeof(buffer),
+        "LDR ADC: %d",
+        light_value
+        );
+    lv_label_set_text(light_label, buffer);
 }
 
 // ==================== Create System Page ====================
@@ -223,18 +237,18 @@ lv_obj_t *create_system_page()
         title, &lv_font_montserrat_14, LV_PART_MAIN);
 
     lv_obj_align(
-        title, LV_ALIGN_TOP_MID, 0, 10);
+        title, LV_ALIGN_TOP_MID, 0, 6);
 
     // Row 1
     lv_obj_t *uptime_card = create_card(
-        screen, 12, 40, 104, 52);
+        screen, 12, 34, 104, 46);
 
     create_card_title(uptime_card, "UPTIME");
     uptime_label = create_card_value(
         uptime_card, "--:--:--", COLOR_GREEN);
 
     lv_obj_t *cpu_card = create_card(
-        screen, 124, 40, 104, 52);
+        screen, 124, 34, 104, 46);
 
     create_card_title(cpu_card, "CPU");
     cpu_label = create_card_value(
@@ -242,14 +256,14 @@ lv_obj_t *create_system_page()
 
     // Row 2
     lv_obj_t *total_heap_card = create_card(
-        screen, 12, 100, 104, 52);
+        screen, 12, 87, 104, 46);
 
     create_card_title(total_heap_card, "TOTAL HEAP");
     total_heap_label = create_card_value(
         total_heap_card, "-- KB", COLOR_BLUE);
 
     lv_obj_t *free_heap_card = create_card(
-        screen, 124, 100, 104, 52);
+        screen, 124, 87, 104, 46);
 
     create_card_title(free_heap_card, "FREE HEAP");
     free_heap_label = create_card_value(
@@ -257,14 +271,14 @@ lv_obj_t *create_system_page()
 
     // Row 3
     lv_obj_t *min_heap_card = create_card(
-        screen, 12, 160, 104, 52);
+        screen, 12, 140, 104, 46);
 
     create_card_title(min_heap_card, "MIN FREE HEAP");
     min_heap_label = create_card_value(
         min_heap_card, "-- KB", COLOR_ORANGE);
 
     lv_obj_t *flash_card = create_card(
-        screen, 124, 160, 104, 52);
+        screen, 124, 140, 104, 46);
 
     create_card_title(flash_card, "FLASH SIZE");
     flash_label = create_card_value(
@@ -272,7 +286,7 @@ lv_obj_t *create_system_page()
 
     // Device information
     lv_obj_t *device_card = create_card(
-        screen, 12, 216, 216, 72);
+        screen, 12, 194, 216, 94);
 
     create_card_title(device_card, "DEVICE INFORMATION");
 
@@ -284,7 +298,7 @@ lv_obj_t *create_system_page()
         chip_label, lv_color_white(), LV_PART_MAIN);
 
     lv_obj_set_style_text_font(
-        chip_label, &lv_font_montserrat_12, LV_PART_MAIN);
+        chip_label, &lv_font_montserrat_10, LV_PART_MAIN);
 
     lv_obj_align(
         chip_label, LV_ALIGN_TOP_LEFT, 9, 25);
@@ -300,7 +314,25 @@ lv_obj_t *create_system_page()
         wifi_label, &lv_font_montserrat_10, LV_PART_MAIN);
 
     lv_obj_align(
-        wifi_label, LV_ALIGN_BOTTOM_LEFT, 9, -20);
+        wifi_label, LV_ALIGN_TOP_LEFT, 9, 44);
+
+    light_label = lv_label_create(device_card);
+
+    lv_label_set_text(light_label, "LDR ADC: ----");
+
+    lv_obj_set_style_text_color(
+        light_label, lv_color_hex(COLOR_ORANGE), LV_PART_MAIN);
+
+    lv_obj_set_style_text_font(
+        light_label, &lv_font_montserrat_10, LV_PART_MAIN);
+
+    lv_obj_align(
+        light_label, LV_ALIGN_TOP_LEFT, 9, 64);
+
+    // Initialize ambient light ADC
+    pinMode(34, INPUT);
+    analogReadResolution(12);
+    analogSetPinAttenuation(34, ADC_0db);
 
     // Initial update
     update_system_info(nullptr);
@@ -311,4 +343,3 @@ lv_obj_t *create_system_page()
 
     return screen;
 }
-
