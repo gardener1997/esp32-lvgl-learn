@@ -1,0 +1,6 @@
+#pragma once
+
+// 复制本文件为 wifi_config.h，再改成自己的 Wi-Fi 信息。
+// wifi_config.h 已在 .gitignore 中，不会被提交。
+#define WIFI_SSID     "your-ssid"
+#define WIFI_PASSWORD "your-password"
