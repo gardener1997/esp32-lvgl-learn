@@ -202,8 +202,6 @@ static void update_system_info(lv_timer_t *timer)
     }
 
     // Ambient light sensor (GPIO34)
-    analogSetPinAttenuation(34, ADC_0db);
-
     int light_value = analogRead(34);
 
     snprintf(
