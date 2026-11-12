@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
@@ -7,6 +6,7 @@
 #include <math.h>
 
 #include "weather.h"
+#include "wifi_service.h"
 
 // ==================== Configuration ====================
 
@@ -257,7 +257,7 @@ static void weather_task(void *parameter)
     while (true) {
         bool success = false;
 
-        if (WiFi.status() == WL_CONNECTED) {
+        if (wifi_service_is_connected()) {
             success = fetch_weather();
         } else {
             Serial.println("Weather: Wi-Fi disconnected");

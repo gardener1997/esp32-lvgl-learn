@@ -3,6 +3,7 @@
 #include <math.h>
 
 #include "pages.h"
+#include "time_service.h"
 
 // ==================== Colors ====================
 
@@ -23,6 +24,7 @@ static lv_obj_t *min_label = nullptr;
 
 static lv_obj_t *temperature_chart = nullptr;
 static lv_chart_series_t *temperature_series = nullptr;
+static lv_obj_t *clock_label = nullptr;
 
 // ==================== Temperature Data ====================
 
@@ -56,6 +58,40 @@ static lv_obj_t *create_card(
     lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
 
     return card;
+}
+
+// ==================== Clock ====================
+
+static void update_clock(lv_timer_t *timer)
+{
+    lv_obj_t *label = static_cast<lv_obj_t *>(
+        lv_timer_get_user_data(timer)
+    );
+
+    struct tm timeinfo;
+    char buffer[32];
+
+    if (time_service_get_local_time(&timeinfo)) {
+        strftime(
+            buffer,
+            sizeof(buffer),
+            "%Y-%m-%d %H:%M:%S",
+            &timeinfo
+        );
+    } else {
+        snprintf(buffer, sizeof(buffer), "Syncing...");
+    }
+
+    lv_label_set_text(label, buffer);
+}
+
+static void clock_timer_deleted(lv_event_t *event)
+{
+    lv_timer_t *timer = static_cast<lv_timer_t *>(
+        lv_event_get_user_data(event)
+    );
+
+    lv_timer_delete(timer);
 }
 
 // ==================== Reset Statistics ====================
@@ -180,12 +216,49 @@ lv_obj_t *create_temperature_page()
     lv_obj_set_style_text_font(
         title, &lv_font_montserrat_14, LV_PART_MAIN);
 
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 4);
+
+    // Clock
+    clock_label = lv_label_create(screen);
+
+    lv_label_set_text(clock_label, "Syncing...");
+
+    lv_obj_set_style_text_color(
+        clock_label,
+        lv_color_hex(COLOR_BLUE),
+        LV_PART_MAIN
+        );
+
+    lv_obj_set_style_text_font(
+        clock_label,
+        &lv_font_montserrat_12,
+        LV_PART_MAIN
+        );
+
+    lv_obj_align(clock_label, LV_ALIGN_TOP_MID, 0, 22);
+
+    // Update clock every second.
+    lv_timer_t *clock_timer = lv_timer_create(
+        update_clock,
+        1000,
+        clock_label
+        );
+
+    // Update immediately instead of waiting one second.
+    update_clock(clock_timer);
+
+    // Delete timer when the page is destroyed.
+    lv_obj_add_event_cb(
+        screen,
+        clock_timer_deleted,
+        LV_EVENT_DELETE,
+        clock_timer
+        );
 
     // Current temperature card
     lv_obj_t *main_card = create_card(screen, 220, 88);
 
-    lv_obj_align(main_card, LV_ALIGN_TOP_MID, 0, 38);
+    lv_obj_align(main_card, LV_ALIGN_TOP_MID, 0, 42);
 
     lv_obj_t *current_title = lv_label_create(main_card);
 

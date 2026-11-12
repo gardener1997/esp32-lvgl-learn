@@ -5,12 +5,15 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <lvgl.h>
-#include <WiFi.h>
+#include <SD.h>
 
 #include "pages.h"
 #include "settings.h"
-#include "wifi_config.h"
 #include "weather.h"
+#include "sd_storage.h"
+#include "screenshot.h"
+#include "wifi_service.h"
+#include "time_service.h"
 
 // ==================== Hardware ====================
 
@@ -29,11 +32,13 @@ DallasTemperature temperature_sensor(&one_wire);
 static constexpr uint32_t SCREEN_WIDTH = 240;
 static constexpr uint32_t SCREEN_HEIGHT = 320;
 
-static constexpr uint32_t BUFFER_LINES = 16;
+static constexpr uint32_t BUFFER_LINES = 15;
 
 static uint8_t draw_buffer[
     SCREEN_WIDTH * BUFFER_LINES * 2
 ];
+
+static lv_display_t *main_display = nullptr;
 
 // ==================== Pages ====================
 
@@ -116,6 +121,9 @@ static void flush_callback(
     );
 
     tft.endWrite();
+
+    // Capture the rendered pixels when a screenshot is requested.
+    screenshot_capture_flush(area, px_map);
 
     lv_display_flush_ready(display);
 }
@@ -287,60 +295,47 @@ static void temperature_timer_callback(lv_timer_t *timer)
     temperature_sensor.requestTemperatures();
 }
 
-// ==================== Wi-Fi ====================
-
-static void wifi_connect_task(void *parameter)
+static void list_sd_root()
 {
-    WiFi.mode(WIFI_STA);
-    WiFi.setAutoReconnect(true);
+    if (SD.cardType() == CARD_NONE) {
+        Serial.println("SD card not available");
+        return;
+    }
 
-    Serial.println("Connecting to WiFi...");
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    File root = SD.open("/");
 
-    // 最多等待 15 秒，但只阻塞当前 Wi-Fi 任务
-    for (int i = 0; i < 30; i++)
-    {
-        if (WiFi.status() == WL_CONNECTED)
-        {
-            break;
+    if (!root || !root.isDirectory()) {
+        Serial.println("Failed to open SD root directory");
+        return;
+    }
+
+    Serial.println("\nSD card contents:");
+    Serial.println("------------------------------");
+
+    int count = 0;
+    File entry = root.openNextFile();
+
+    while (entry) {
+        if (entry.isDirectory()) {
+            Serial.printf("[DIR]  %s\n", entry.name());
+        } else {
+            Serial.printf(
+                "[FILE] %-24s %lu bytes\n",
+                entry.name(),
+                (unsigned long)entry.size()
+            );
         }
 
-        vTaskDelay(pdMS_TO_TICKS(500));
+        count++;
+        entry.close();
+
+        entry = root.openNextFile();
     }
 
-    if (WiFi.status() == WL_CONNECTED)
-    {
-        Serial.println("WiFi connected!");
-        Serial.print("IP address: ");
-        Serial.println(WiFi.localIP());
+    root.close();
 
-        Serial.print("RSSI: ");
-        Serial.println(WiFi.RSSI());
-    }
-    else
-    {
-        Serial.println("WiFi connection is still pending.");
-        Serial.println("Auto reconnect is enabled.");
-    }
-
-    vTaskDelete(nullptr);
-}
-
-static void start_wifi_task()
-{
-    BaseType_t result = xTaskCreate(
-        wifi_connect_task,
-        "wifi_connect",
-        4096,
-        nullptr,
-        1,
-        nullptr
-    );
-
-    if (result != pdPASS)
-    {
-        Serial.println("Failed to create WiFi task!");
-    }
+    Serial.println("------------------------------");
+    Serial.printf("%d item(s)\n\n", count);
 }
 
 // ==================== Serial CLI ====================
@@ -367,6 +362,10 @@ static void execute_serial_command(const char *command)
         Serial.println("  help  - Show commands");
         Serial.println("  temp  - Show current temperature");
         Serial.println("  info  - Show device information");
+        Serial.println("  sd     - Initialize SD card");
+        Serial.println("  sdtest - Test SD card read/write");
+        Serial.println("  screenshot - Capture screen to SD card");
+        Serial.println("  ls         - List SD card files");
         Serial.println("  quit  - Exit command mode");
     }
     else if (strcmp(command, "temp") == 0) {
@@ -401,15 +400,27 @@ static void execute_serial_command(const char *command)
 
         Serial.printf(
             "WiFi: %s\n",
-            WiFi.status() == WL_CONNECTED
+            wifi_service_is_connected()
                 ? "Connected"
                 : "Disconnected"
         );
 
-        if (WiFi.status() == WL_CONNECTED) {
+        if (wifi_service_is_connected()) {
             Serial.print("IP: ");
-            Serial.println(WiFi.localIP());
+            Serial.println(wifi_service_local_ip());
         }
+    }
+    else if (strcmp(command, "sd") == 0) {
+      init_sd_card();
+    }
+    else if (strcmp(command, "sdtest") == 0) {
+      test_sd_card();
+    }
+    else if (strcmp(command, "screenshot") == 0) {
+      screenshot_save_bmp(main_display);
+    }
+    else if (strcmp(command, "ls") == 0) {
+      list_sd_root();
     }
     else if (strlen(command) > 0) {
         Serial.print("Unknown command: ");
@@ -483,7 +494,7 @@ void setup()
 {
     Serial.begin(115200);
 
-    start_wifi_task();
+    wifi_service_begin();
 
     // Backlight
     // Load saved settings
@@ -529,18 +540,18 @@ void setup()
     // LVGL
     lv_init();
 
-    lv_display_t *display = lv_display_create(
+    main_display = lv_display_create(
         SCREEN_WIDTH,
         SCREEN_HEIGHT
-    );
+        );
 
     lv_display_set_color_format(
-        display,
+        main_display,
         LV_COLOR_FORMAT_RGB565
     );
 
     lv_display_set_buffers(
-        display,
+        main_display,
         draw_buffer,
         nullptr,
         sizeof(draw_buffer),
@@ -548,7 +559,7 @@ void setup()
     );
 
     lv_display_set_flush_cb(
-        display,
+        main_display,
         flush_callback
     );
 
@@ -576,7 +587,7 @@ void setup()
 
     lv_indev_set_display(
         indev,
-        display
+        main_display
     );
 
     lv_indev_set_read_cb(
@@ -606,8 +617,17 @@ void setup()
 void loop()
 {
     static uint32_t last_tick = 0;
+    static bool time_service_started = false;
 
     handle_serial_input();
+
+    // Wi-Fi 连接成功后，启动一次 NTP。
+    if (!time_service_started &&
+        wifi_service_is_connected()) {
+
+        time_service_begin();
+        time_service_started = true;
+    }
 
     uint32_t now = millis();
 
